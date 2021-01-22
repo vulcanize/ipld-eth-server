@@ -529,6 +529,17 @@ func (b *Backend) GetEVM(ctx context.Context, msg core.Message, state *state.Sta
 	return vm.NewEVM(c, state, b.Config.ChainConfig, b.Config.VmConfig), nil
 }
 
+func (b *Backend) GetEVMWithTracer(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header) (*vm.EVM, *TxTracer, error) {
+	state.SetBalance(msg.From(), math.MaxBig256)
+	c := core.NewEVMContext(msg, header, b, nil)
+
+	tracer := NewTxTracer()
+	cfg := b.Config.VmConfig
+	cfg.Debug = true
+	cfg.Tracer = tracer
+	return vm.NewEVM(c, state, b.Config.ChainConfig, cfg), tracer, nil
+}
+
 // GetAccountByNumberOrHash returns the account object for the provided address at the block corresponding to the provided number or hash
 func (b *Backend) GetAccountByNumberOrHash(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (*state.Account, error) {
 	if blockNr, ok := blockNrOrHash.Number(); ok {

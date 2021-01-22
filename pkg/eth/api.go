@@ -820,7 +820,7 @@ func DoCall(ctx context.Context, b *Backend, args CallArgs, blockNrOrHash rpc.Bl
 	defer cancel()
 
 	// Get a new instance of the EVM.
-	evm, err := b.GetEVM(ctx, msg, state, header)
+	evm, _, err := b.GetEVMWithTracer(ctx, msg, state, header)
 	if err != nil {
 		return nil, 0, false, err
 	}
