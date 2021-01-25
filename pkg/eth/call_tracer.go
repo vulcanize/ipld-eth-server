@@ -118,6 +118,8 @@ func (tracer *CallTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas
 
 // CaptureEnd is called after the call finishes to finalize the tracing.
 func (tracer *CallTracer) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) error {
+	tracer.err = err
+	tracer.output = output
 	for _, frame := range tracer.frames {
 		logrus.WithFields(logrus.Fields{
 			"From":  frame.From.Hex(),
