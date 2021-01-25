@@ -529,11 +529,11 @@ func (b *Backend) GetEVM(ctx context.Context, msg core.Message, state *state.Sta
 	return vm.NewEVM(c, state, b.Config.ChainConfig, b.Config.VmConfig), nil
 }
 
-func (b *Backend) GetEVMWithTracer(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header) (*vm.EVM, *TxTracer, error) {
+func (b *Backend) GetEVMWithTracer(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header) (*vm.EVM, *CallTracer, error) {
 	state.SetBalance(msg.From(), math.MaxBig256)
 	c := core.NewEVMContext(msg, header, b, nil)
 
-	tracer := NewTxTracer()
+	tracer := NewCallTracer()
 	cfg := b.Config.VmConfig
 	cfg.Debug = true
 	cfg.Tracer = tracer
