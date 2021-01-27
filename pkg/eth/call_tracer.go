@@ -24,6 +24,7 @@ type Frame struct {
 
 type CallTracer struct {
 	ops    map[vm.OpCode]bool
+	stores map[common.Address]vm.Storage
 	frames []Frame
 	output []byte
 	err    error
@@ -40,6 +41,7 @@ func NewCallTracer() *CallTracer {
 			vm.DELEGATECALL: true,
 			vm.STATICCALL:   true,
 		},
+		stores: make(map[common.Address]vm.Storage),
 		frames: make([]Frame, 0),
 	}
 }
@@ -49,17 +51,19 @@ func (tracer *CallTracer) CaptureStart(from common.Address, to common.Address, c
 	return nil
 }
 
-func getData(stack *vm.Stack, n int) []*big.Int {
-	tmp := make([]*big.Int, n)
-	dat := stack.Data()
-	for i, j := len(dat)-1, 0; i >= 0 && j < n; i, j = i-1, j+1 {
-		tmp[j] = new(big.Int).Set(dat[i])
-	}
-	return tmp
-}
-
 // CaptureState logs a new structured log message and pushes it out to the environment
 func (tracer *CallTracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, memory *vm.Memory, stack *vm.Stack, contract *vm.Contract, depth int, err error) error {
+	if op == vm.SSTORE {
+		if tracer.stores[contract.Address()] == nil {
+			tracer.stores[contract.Address()] = make(vm.Storage)
+		}
+		var (
+			value   = common.BigToHash(stack.Back(1))
+			address = common.BigToHash(stack.Back(0))
+		)
+		tracer.stores[contract.Address()][address] = value
+		return nil
+	}
 	if !tracer.ops[op] {
 		return nil
 	}
@@ -127,6 +131,15 @@ func (tracer *CallTracer) CaptureEnd(output []byte, gasUsed uint64, t time.Durat
 			"Input": frame.Input.String(),
 			"Value": fmt.Sprintf("%#x", frame.Value),
 		}).Info(frame.Op.String())
+	}
+	for addr, storage := range tracer.stores {
+		log := logrus.WithField("addr", addr.Hex())
+		for hash1, hash2 := range storage {
+			log.WithFields(logrus.Fields{
+				"key":   hash1.Hex(),
+				"value": hash2.Hex(),
+			}).Info(vm.SSTORE.String())
+		}
 	}
 	return nil
 }
