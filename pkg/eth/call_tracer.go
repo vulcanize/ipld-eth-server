@@ -1,14 +1,12 @@
 package eth
 
 import (
-	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sirupsen/logrus"
 )
 
 type Frame struct {
@@ -124,23 +122,6 @@ func (tracer *CallTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas
 func (tracer *CallTracer) CaptureEnd(output []byte, gasUsed uint64, t time.Duration, err error) error {
 	tracer.err = err
 	tracer.output = output
-	for _, frame := range tracer.frames {
-		logrus.WithFields(logrus.Fields{
-			"From":  frame.From.Hex(),
-			"To":    frame.To.Hex(),
-			"Input": frame.Input.String(),
-			"Value": fmt.Sprintf("%#x", frame.Value),
-		}).Info(frame.Op.String())
-	}
-	for addr, storage := range tracer.stores {
-		log := logrus.WithField("addr", addr.Hex())
-		for hash1, hash2 := range storage {
-			log.WithFields(logrus.Fields{
-				"key":   hash1.Hex(),
-				"value": hash2.Hex(),
-			}).Info(vm.SSTORE.String())
-		}
-	}
 	return nil
 }
 
