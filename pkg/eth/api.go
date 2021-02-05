@@ -27,8 +27,10 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	emath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
@@ -37,6 +39,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/vulcanize/ipld-eth-indexer/pkg/eth"
+	"github.com/vulcanize/ipld-eth-server/pkg/eth/tracer"
 	"github.com/vulcanize/ipld-eth-server/pkg/shared"
 )
 
@@ -870,4 +873,56 @@ func (pea *PublicEthAPI) rpcMarshalBlockWithUncleHashes(b *types.Block, uncleHas
 	}
 	fields["totalDifficulty"] = (*hexutil.Big)(td)
 	return fields, err
+}
+
+func (pea *PublicEthAPI) TxTrace(ctx context.Context, hash common.Hash) (interface{}, error) {
+	tx, _, blockNum, txIndex, err := pea.B.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+
+	signer := types.MakeSigner(pea.B.Config.ChainConfig, big.NewInt(int64(blockNum)))
+
+	block, err := pea.B.BlockByNumber(ctx, rpc.BlockNumber(blockNum))
+	if err != nil {
+		return nil, err
+	}
+
+	statedb, _, err := pea.B.StateAndHeaderByNumber(ctx, rpc.BlockNumber(blockNum-1))
+	if err != nil {
+		return nil, err
+	}
+
+	txs := block.Transactions()
+	for i, ln := uint64(0), uint64(len(txs)); i < ln && i < txIndex; i++ {
+		msg, err := tx.AsMessage(signer)
+		if err != nil {
+			return nil, err
+		}
+		evm, _ := pea.B.GetEVM(ctx, msg, statedb, block.Header())
+		_, _, _, err = core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(math.MaxUint64))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	msg, err := tx.AsMessage(signer)
+	statedb.SetBalance(msg.From(), emath.MaxBig256)
+	c := core.NewEVMContext(msg, block.Header(), pea.B, nil)
+	tracer := tracer.NewCallTracer()
+	cfg := pea.B.Config.VmConfig
+	cfg.Debug = true
+	cfg.Tracer = tracer
+
+	evm := vm.NewEVM(c, statedb, pea.B.Config.ChainConfig, cfg)
+	_, _, _, err = core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(math.MaxUint64))
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"error":  tracer.Error(),
+		"output": hexutil.Bytes(tracer.Output()),
+		"frames": tracer.Frames(),
+	}, nil
 }
