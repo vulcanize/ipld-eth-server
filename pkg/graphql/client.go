@@ -4,17 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	gqlclient "github.com/machinebox/graphql"
 )
-
-type Client struct {
-	client  *gqlclient.Client
-	timeout time.Duration
-}
 
 type StorageResponse struct {
 	Cid       string        `json:"cid"`
@@ -33,6 +27,10 @@ type LogResponse struct {
 
 type GetLogs struct {
 	Responses []LogResponse `json:"getLogs"`
+}
+
+type Client struct {
+	client *gqlclient.Client
 }
 
 func NewClient(endpoint string) *Client {
