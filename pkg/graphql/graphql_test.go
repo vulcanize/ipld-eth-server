@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -48,13 +47,13 @@ var _ = Describe("GraphQL", func() {
 		gqlEndPoint = "127.0.0.1:8083"
 	)
 	var (
-		randomAddr = common.HexToAddress("0x1C3ab14BBaD3D99F4203bd7a11aCB94882050E6f")
-		randomHash = crypto.Keccak256Hash(randomAddr.Bytes())
-		blocks     []*types.Block
-		receipts   []types.Receipts
-		chain      *core.BlockChain
-		db         *postgres.DB
-
+		randomAddr      = common.HexToAddress("0x1C3ab14BBaD3D99F4203bd7a11aCB94882050E6f")
+		randomHash      = crypto.Keccak256Hash(randomAddr.Bytes())
+		blocks          []*types.Block
+		receipts        []types.Receipts
+		chain           *core.BlockChain
+		db              *postgres.DB
+		blockHashes     []common.Hash
 		backend         *eth.Backend
 		graphQLServer   *graphql.Service
 		chainConfig     = params.TestChainConfig
@@ -88,6 +87,7 @@ var _ = Describe("GraphQL", func() {
 		// iterate over the blocks, generating statediff payloads, and transforming the data into Postgres
 		builder := statediff.NewBuilder(chain.StateCache())
 		for i, block := range blocks {
+			blockHashes = append(blockHashes, block.Hash())
 			var args statediff.Args
 			var rcts types.Receipts
 			if i == 0 {
@@ -133,6 +133,7 @@ var _ = Describe("GraphQL", func() {
 
 		err = indexAndPublisher.Publish(test_helpers.MockConvertedPayload)
 		Expect(err).ToNot(HaveOccurred())
+
 		// The non-canonical header has a child
 		err = indexAndPublisher.Publish(test_helpers.MockConvertedPayloadForChild)
 		Expect(err).ToNot(HaveOccurred())
@@ -175,13 +176,39 @@ var _ = Describe("GraphQL", func() {
 	})
 
 	Describe("eth_getStorageAt", func() {
-		It("Retrieves storage at the provided blockHash contract address and slot", func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-			defer cancel()
-			_, err := client.GetStorageAt(ctx, blockHash, contractAddress, slot)
+		It("Retrieves the storage value at the provided contract address and storage leaf key at the block with the provided hash", func() {
+			storageRes, err := client.GetStorageAt(ctx, blockHashes[2], contractAddress, slot)
 			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes(common.Hex2Bytes("01"))))
 
-			// TODO: Currently this is failing, Update the test when the underlying code is fixed.
+			storageRes, err = client.GetStorageAt(ctx, blockHashes[3], contractAddress, slot)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes(common.Hex2Bytes("03"))))
+
+			storageRes, err = client.GetStorageAt(ctx, blockHashes[4], contractAddress, slot)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes(common.Hex2Bytes("09"))))
+
+			storageRes, err = client.GetStorageAt(ctx, blockHashes[5], contractAddress, slot)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes{}))
+
+		})
+
+		It("Retrieves empty data if it tries to access a contract at the blockHash which does not exist", func() {
+			storageRes, err := client.GetStorageAt(ctx, blockHashes[0], contractAddress, slot)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes{}))
+
+			storageRes, err = client.GetStorageAt(ctx, blockHashes[1], contractAddress, slot)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes{}))
+		})
+
+		It("Retrieves empty data if it tries to access a contract slot which does not exist", func() {
+			storageRes, err := client.GetStorageAt(ctx, blockHashes[3], contractAddress, randomHash.Hex())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(storageRes.Value).To(Equal(hexutil.Bytes{}))
 		})
 	})
 })
@@ -191,14 +218,17 @@ func publishCode(db *postgres.DB, codeHash common.Hash, code []byte) error {
 	if err != nil {
 		return err
 	}
+
 	mhKey, err := shared.MultihashKeyFromKeccak256(codeHash)
 	if err != nil {
 		_ = tx.Rollback()
 		return err
 	}
+
 	if err := shared.PublishDirect(tx, mhKey, code); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
+
 	return tx.Commit()
 }

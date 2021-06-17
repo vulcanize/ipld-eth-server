@@ -28,7 +28,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -961,8 +960,8 @@ type StorageResult struct {
 	ipldBlock []byte
 }
 
-func (s *StorageResult) Value(ctx context.Context) common.Hash {
-	return common.BytesToHash(s.value)
+func (s *StorageResult) Value(ctx context.Context) hexutil.Bytes {
+	return s.value
 }
 
 func (s *StorageResult) Cid(ctx context.Context) string {
@@ -978,32 +977,14 @@ func (r *Resolver) GetStorageAt(ctx context.Context, args struct {
 	Contract  common.Address
 	Slot      common.Hash
 }) (*StorageResult, error) {
-	storageLeafKey := crypto.Keccak256Hash(args.Slot.Bytes())
-	cid, ipldBlock, rlpValue, err := r.backend.IPLDRetriever.RetrieveStorageAtByAddressAndStorageKeyAndBlockHash(args.Contract, storageLeafKey, args.BlockHash)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			ret := StorageResult{value: ([]byte{}), cid: "", ipldBlock: ([]byte{})}
-
-			return &ret, nil
-		}
-
+	cid, ipldBlock, rlpValue, err := r.backend.IPLDRetriever.RetrieveStorageAtByAddressAndStorageKeyAndBlockHash(args.Contract, args.Slot, args.BlockHash)
+	if err == sql.ErrNoRows {
+		return &StorageResult{value: []byte{}, cid: "", ipldBlock: []byte{}}, nil
+	} else if err != nil {
 		return nil, err
 	}
 
-	var value interface{}
-	err = rlp.DecodeBytes(rlpValue, &value)
-	if err != nil {
-		return nil, err
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	ret := StorageResult{value: value.([]byte), cid: cid, ipldBlock: ipldBlock}
-
-	return &ret, nil
+	return &StorageResult{value: rlpValue, cid: cid, ipldBlock: ipldBlock}, nil
 }
 
 func (r *Resolver) GetLogs(ctx context.Context, args struct {

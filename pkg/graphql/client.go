@@ -12,8 +12,8 @@ import (
 
 type StorageResponse struct {
 	Cid       string        `json:"cid"`
+	Value     hexutil.Bytes `json:"value"`
 	IpldBlock hexutil.Bytes `json:"ipldBlock"`
-	Value     common.Hash   `json:"value"`
 }
 
 type GetStorageAt struct {
@@ -94,7 +94,6 @@ func (c *Client) GetStorageAt(ctx context.Context, hash common.Hash, address com
 	if err != nil {
 		return nil, err
 	}
-
 	var storageAt GetStorageAt
 	err = json.Unmarshal(jsonStr, &storageAt)
 	if err != nil {

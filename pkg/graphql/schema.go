@@ -267,7 +267,7 @@ const schema string = `
 
     # Storage trie value with IPLD data.
     type StorageResult {
-        value: Bytes32!
+        value: Bytes!
 
         # CID for the storage trie IPLD block.
         cid: String!
