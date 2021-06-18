@@ -1,0 +1,14 @@
+version: '3.2'
+
+services:
+  contract:
+    depends_on:
+      - dapptools
+    build:
+      context: ./test/contract
+      args:
+        ETH_ADDR: "http://dapptools:8545"
+    environment:
+      ETH_ADDR: "http://dapptools:8545"
+    ports:
+      - "127.0.0.1:3000:3000"

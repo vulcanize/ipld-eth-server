@@ -312,6 +312,14 @@ func (ecr *CIDRetriever) RetrieveRctCIDs(tx *sqlx.Tx, rctFilter ReceiptFilter, b
 		args = append(args, blockHash.String())
 		id++
 	}
+
+	// TODO: Add the below filters when we have log index in DB.
+	if true {
+		pgStr += ` ORDER BY transaction_cids.index`
+		receiptCids := make([]eth.ReceiptModel, 0)
+		return receiptCids, tx.Select(&receiptCids, pgStr, args...)
+	}
+
 	if len(rctFilter.LogAddresses) > 0 {
 		// Filter on log contract addresses if there are any
 		pgStr += fmt.Sprintf(` AND ((receipt_cids.log_contracts && $%d::VARCHAR(66)[]`, id)
@@ -373,6 +381,7 @@ func (ecr *CIDRetriever) RetrieveRctCIDs(tx *sqlx.Tx, rctFilter ReceiptFilter, b
 			args = append(args, pq.Array(trxIds))
 		}
 	}
+
 	pgStr += ` ORDER BY transaction_cids.index`
 	receiptCids := make([]eth.ReceiptModel, 0)
 	return receiptCids, tx.Select(&receiptCids, pgStr, args...)

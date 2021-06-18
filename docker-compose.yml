@@ -3,10 +3,30 @@ version: '3.2'
 services:
   dapptools:
     restart: unless-stopped
-    image: vulcanize/dapptools:v0.29.0-statediff-0.0.2
+    depends_on:
+      - statediff-migrations
+    image: vulcanize/dapptools:v0.29.0-v1.10.2-statediff-0.0.19
+    environment:
+      DB_USER: vdbm
+      DB_NAME: vulcanize_public
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_PASSWORD: password
     ports:
       - "127.0.0.1:8545:8545"
       - "127.0.0.1:8546:8546"
+
+  statediff-migrations:
+    restart: on-failure
+    depends_on:
+      - db
+    image: vulcanize/statediff-migrations:v0.4.0
+    environment:
+      DATABASE_USER: vdbm
+      DATABASE_NAME: vulcanize_public
+      DATABASE_HOSTNAME: db
+      DATABASE_PORT: 5432
+      DATABASE_PASSWORD: password
 
   db:
     restart: always
@@ -20,25 +40,8 @@ services:
     ports:
      - "127.0.0.1:8077:5432"
 
-  eth-indexer:
-    restart: unless-stopped
-    depends_on:
-      - db
-      - dapptools
-    image: vulcanize/ipld-eth-indexer:v0.3.0-alpha
-    environment:
-      DATABASE_NAME: vulcanize_public
-      DATABASE_HOSTNAME: db
-      DATABASE_PORT: 5432
-      DATABASE_USER: vdbm
-      DATABASE_PASSWORD: password
-      ETH_WS_PATH: "dapptools:8546"
-      ETH_HTTP_PATH: "dapptools:8545"
-      ETH_CHAIN_ID: 4
-      ETH_NETWORK_ID: 4
-      VDB_COMMAND: sync
-
   eth-server:
+    restart: unless-stopped
     depends_on:
       - db
     build:
@@ -47,16 +50,22 @@ services:
        - alpine:latest
        - golang:1.13-alpine
     environment:
+      IPLD_SERVER_GRAPHQL: "true"
+      IPLD_POSTGRAPHILEPATH: http://graphql:5000
+      ETH_SERVER_HTTPPATH: 0.0.0.0:8081
       VDB_COMMAND: "serve"
+      ETH_CHAIN_CONFIG: "/tmp/chain.json"
       DATABASE_NAME: "vulcanize_public"
       DATABASE_HOSTNAME: "db"
       DATABASE_PORT: 5432
       DATABASE_USER: "vdbm"
       DATABASE_PASSWORD: "password"
-      SERVER_WS_PATH: "0.0.0.0:8081"
-      SERVER_HTTP_PATH: "0.0.0.0:8082"
+      ETH_CHAIN_ID: 4
+    volumes:
+    - type: bind
+      source: ./chain.json
+      target: /tmp/chain.json
     ports:
-     - "127.0.0.1:8080:8080"
      - "127.0.0.1:8081:8081"
 
   graphql:

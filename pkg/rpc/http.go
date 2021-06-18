@@ -41,7 +41,7 @@ func StartHTTPEndpoint(endpoint string, apis []rpc.API, modules []string, cors [
 		utils.Fatalf("Could not start RPC api: %v", err)
 	}
 	extapiURL := fmt.Sprintf("http://%v/", addr)
-	log.Info("HTTP endpoint opened", "url", extapiURL)
+	log.Infof("HTTP endpoint opened %s", extapiURL)
 
 	return srv, err
 }

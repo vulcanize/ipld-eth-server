@@ -428,11 +428,12 @@ func (r *IPLDRetriever) RetrieveAccountByAddressAndBlockNumber(address common.Ad
 	return accountResult.CID, i[1].([]byte), nil
 }
 
-// RetrieveStorageAtByAddressAndStorageKeyAndBlockHash returns the cid and rlp bytes for the storage value corresponding to the provided address, storage key, and block hash
-func (r *IPLDRetriever) RetrieveStorageAtByAddressAndStorageKeyAndBlockHash(address common.Address, storageLeafKey, hash common.Hash) (string, []byte, error) {
+// RetrieveStorageAtByAddressAndStorageSlotAndBlockHash returns the cid and rlp bytes for the storage value corresponding to the provided address, storage slot, and block hash
+func (r *IPLDRetriever) RetrieveStorageAtByAddressAndStorageSlotAndBlockHash(address common.Address, key, hash common.Hash) (string, []byte, error) {
 	storageResult := new(nodeInfo)
 	stateLeafKey := crypto.Keccak256Hash(address.Bytes())
-	if err := r.db.Get(storageResult, RetrieveStorageLeafByAddressHashAndLeafKeyAndBlockHashPgStr, stateLeafKey.Hex(), storageLeafKey.Hex(), hash.Hex()); err != nil {
+	storageHash := crypto.Keccak256Hash(key.Bytes())
+	if err := r.db.Get(storageResult, RetrieveStorageLeafByAddressHashAndLeafKeyAndBlockHashPgStr, stateLeafKey.Hex(), storageHash.Hex(), hash.Hex()); err != nil {
 		return "", nil, err
 	}
 	if storageResult.Removed {

@@ -23,12 +23,12 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/rpc"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/vulcanize/ipld-eth-indexer/pkg/ipfs"
 )
@@ -244,21 +244,89 @@ func newRPCTransactionFromBlockIndex(b *types.Block, index uint64) *RPCTransacti
 }
 
 // extractLogsOfInterest returns logs from the receipt IPLD
-func extractLogsOfInterest(rctIPLDs []ipfs.BlockModel, wantedTopics [][]string) ([]*types.Log, error) {
-	var logs []*types.Log
-	for _, rctIPLD := range rctIPLDs {
-		rctRLP := rctIPLD
-		var rct types.Receipt
-		if err := rlp.DecodeBytes(rctRLP.Data, &rct); err != nil {
+func extractLogsOfInterest(config *params.ChainConfig, blockHash common.Hash, blockNumber uint64,
+	txs types.Transactions, rctIPLDs []ipfs.BlockModel, filter ReceiptFilter) ([]*types.Log, error) {
+	receipts := make(types.Receipts, len(rctIPLDs))
+
+	for i, rctBytes := range rctIPLDs {
+		rct := new(types.Receipt)
+		if err := rlp.DecodeBytes(rctBytes.Data, rct); err != nil {
 			return nil, err
 		}
-		for _, log := range rct.Logs {
-			if wanted := wantedLog(wantedTopics, log.Topics); wanted == true {
-				logs = append(logs, log)
-			}
+		receipts[i] = rct
+	}
+
+	err := receipts.DeriveFields(config, blockHash, blockNumber, txs)
+	if err != nil {
+		return nil, err
+	}
+
+	var unfilteredLogs []*types.Log
+	for _, receipt := range receipts {
+		unfilteredLogs = append(unfilteredLogs, receipt.Logs...)
+	}
+
+	adders := make([]common.Address, len(filter.LogAddresses))
+	for i, addr := range filter.LogAddresses {
+		adders[i] = common.HexToAddress(addr)
+	}
+
+	topics := make([][]common.Hash, len(filter.Topics))
+	for i, v := range filter.Topics {
+		topics[i] = make([]common.Hash, len(v))
+		for j, topic := range v {
+			topics[i][j] = common.HexToHash(topic)
 		}
 	}
+
+	logs := filterLogs(unfilteredLogs, nil, nil, adders, topics)
 	return logs, nil
+}
+
+func includes(addresses []common.Address, a common.Address) bool {
+	for _, addr := range addresses {
+		if addr == a {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterLogs creates a slice of logs matching the given criteria.
+func filterLogs(logs []*types.Log, fromBlock, toBlock *big.Int, addresses []common.Address, topics [][]common.Hash) []*types.Log {
+	var ret []*types.Log
+Logs:
+	for _, log := range logs {
+		if fromBlock != nil && fromBlock.Int64() >= 0 && fromBlock.Uint64() > log.BlockNumber {
+			continue
+		}
+		if toBlock != nil && toBlock.Int64() >= 0 && toBlock.Uint64() < log.BlockNumber {
+			continue
+		}
+
+		if len(addresses) > 0 && !includes(addresses, log.Address) {
+			continue
+		}
+		// If the to filtered topics is greater than the amount of topics in logs, skip.
+		if len(topics) > len(log.Topics) {
+			continue
+		}
+		for i, sub := range topics {
+			match := len(sub) == 0 // empty rule set == wildcard
+			for _, topic := range sub {
+				if log.Topics[i] == topic {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue Logs
+			}
+		}
+		ret = append(ret, log)
+	}
+	return ret
 }
 
 // returns true if the log matches on the filter

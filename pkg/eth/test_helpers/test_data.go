@@ -34,7 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/statediff/testhelpers"
-	"github.com/ipfs/go-block-format"
+	blocks "github.com/ipfs/go-block-format"
 	"github.com/multiformats/go-multihash"
 	log "github.com/sirupsen/logrus"
 
@@ -80,7 +80,7 @@ var (
 		},
 	}
 	ReceiptsRlp, _   = rlp.EncodeToBytes(MockReceipts)
-	MockBlock        = types.NewBlock(&MockHeader, MockTransactions, MockUncles, MockReceipts, new(trie.Trie))
+	MockBlock        = createNewBlock(&MockHeader, MockTransactions, MockUncles, MockReceipts, new(trie.Trie))
 	MockHeaderRlp, _ = rlp.EncodeToBytes(MockBlock.Header())
 	MockChildHeader  = types.Header{
 		Time:        0,
@@ -104,15 +104,22 @@ var (
 	mockTopic21          = common.HexToHash("0x05")
 	mockTopic22          = common.HexToHash("0x07")
 	MockLog1             = &types.Log{
-		Address: Address,
-		Topics:  []common.Hash{mockTopic11, mockTopic12},
-		Data:    []byte{},
+		Address:     Address,
+		Topics:      []common.Hash{mockTopic11, mockTopic12},
+		Data:        []byte{},
+		BlockNumber: BlockNumber.Uint64(),
+		TxIndex:     0,
+		Index:       0,
 	}
 	MockLog2 = &types.Log{
-		Address: AnotherAddress,
-		Topics:  []common.Hash{mockTopic21, mockTopic22},
-		Data:    []byte{},
+		Address:     AnotherAddress,
+		Topics:      []common.Hash{mockTopic21, mockTopic22},
+		Data:        []byte{},
+		BlockNumber: BlockNumber.Uint64(),
+		TxIndex:     1,
+		Index:       1,
 	}
+
 	HeaderCID, _  = ipld.RawdataToCid(ipld.MEthHeader, MockHeaderRlp, multihash.KECCAK_256)
 	HeaderMhKey   = shared.MultihashKeyFromCID(HeaderCID)
 	Trx1CID, _    = ipld.RawdataToCid(ipld.MEthTx, MockTransactions.GetRlp(0), multihash.KECCAK_256)
@@ -375,6 +382,8 @@ var (
 		StateNodes:      MockStateNodes,
 	}
 
+	Reward = eth.CalcEthBlockReward(MockBlock.Header(), MockBlock.Uncles(), MockBlock.Transactions(), MockReceipts)
+
 	MockCIDWrapper = &eth2.CIDWrapper{
 		BlockNumber: new(big.Int).Set(BlockNumber),
 		Header: eth.HeaderModel{
@@ -384,7 +393,7 @@ var (
 			CID:             HeaderCID.String(),
 			MhKey:           HeaderMhKey,
 			TotalDifficulty: MockBlock.Difficulty().String(),
-			Reward:          "5312500000000000000",
+			Reward:          Reward.String(),
 			StateRoot:       MockBlock.Root().String(),
 			RctRoot:         MockBlock.ReceiptHash().String(),
 			TxRoot:          MockBlock.TxHash().String(),
@@ -489,6 +498,17 @@ var (
 	}
 )
 
+func createNewBlock(header *types.Header, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt, hasher types.Hasher) *types.Block {
+	block := types.NewBlock(header, txs, uncles, receipts, hasher)
+	bHash := block.Hash()
+	for _, r := range receipts {
+		for _, l := range r.Logs {
+			l.BlockHash = bHash
+		}
+	}
+	return block
+}
+
 // createTransactionsAndReceipts is a helper function to generate signed mock transactions and mock receipts with mock logs
 func createTransactionsAndReceipts() (types.Transactions, types.Receipts, common.Address) {
 	// make transactions
@@ -519,13 +539,26 @@ func createTransactionsAndReceipts() (types.Transactions, types.Receipts, common
 	}
 	// make receipts
 	mockReceipt1 := types.NewReceipt(common.HexToHash("0x0").Bytes(), false, 50)
+
+	hash1 := signedTrx1.Hash()
+	MockLog1.TxHash = hash1
+
 	mockReceipt1.Logs = []*types.Log{MockLog1}
-	mockReceipt1.TxHash = signedTrx1.Hash()
+	mockReceipt1.TxHash = hash1
+	mockReceipt1.GasUsed = mockReceipt1.CumulativeGasUsed
+
 	mockReceipt2 := types.NewReceipt(common.HexToHash("0x1").Bytes(), false, 100)
+	hash2 := signedTrx2.Hash()
+	MockLog2.TxHash = hash2
+
 	mockReceipt2.Logs = []*types.Log{MockLog2}
-	mockReceipt2.TxHash = signedTrx2.Hash()
-	mockReceipt3 := types.NewReceipt(common.HexToHash("0x2").Bytes(), false, 75)
+	mockReceipt2.TxHash = hash2
+	mockReceipt2.GasUsed = mockReceipt2.CumulativeGasUsed - mockReceipt1.CumulativeGasUsed
+
+	mockReceipt3 := types.NewReceipt(common.HexToHash("0x2").Bytes(), false, 175)
 	mockReceipt3.Logs = []*types.Log{}
 	mockReceipt3.TxHash = signedTrx3.Hash()
+	mockReceipt3.GasUsed = mockReceipt3.CumulativeGasUsed - mockReceipt2.CumulativeGasUsed
+
 	return types.Transactions{signedTrx1, signedTrx2, signedTrx3}, types.Receipts{mockReceipt1, mockReceipt2, mockReceipt3}, SenderAddr
 }

@@ -16,23 +16,28 @@
 package cmd
 
 import (
+	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
-
-	"github.com/vulcanize/ipld-eth-server/pkg/graphql"
 
 	"github.com/ethereum/go-ethereum/rpc"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/vulcanize/gap-filler/pkg/mux"
 	"github.com/vulcanize/ipld-eth-indexer/pkg/eth"
-
+	"github.com/vulcanize/ipld-eth-server/pkg/graphql"
 	srpc "github.com/vulcanize/ipld-eth-server/pkg/rpc"
 	s "github.com/vulcanize/ipld-eth-server/pkg/serve"
 	v "github.com/vulcanize/ipld-eth-server/version"
 )
+
+var ErrNoRpcEndpoints = errors.New("no rpc endpoints is available")
 
 // serveCmd represents the serve command
 var serveCmd = &cobra.Command{
@@ -71,7 +76,12 @@ func serve() {
 	if err := startServers(server, serverConfig); err != nil {
 		logWithCommand.Fatal(err)
 	}
-	graphQL, err := startGraphQL(server)
+	graphQL, err := startEthGraphQL(server, serverConfig)
+	if err != nil {
+		logWithCommand.Fatal(err)
+	}
+
+	err = startIpldGraphQL(serverConfig)
 	if err != nil {
 		logWithCommand.Fatal(err)
 	}
@@ -87,27 +97,43 @@ func serve() {
 }
 
 func startServers(server s.Server, settings *s.Config) error {
-	logWithCommand.Info("starting up IPC server")
-	_, _, err := srpc.StartIPCEndpoint(settings.IPCEndpoint, server.APIs())
-	if err != nil {
-		return err
+	if settings.IPCEnabled {
+		logWithCommand.Info("starting up IPC server")
+		_, _, err := srpc.StartIPCEndpoint(settings.IPCEndpoint, server.APIs())
+		if err != nil {
+			return err
+		}
+	} else {
+		logWithCommand.Info("IPC server is disabled")
 	}
-	logWithCommand.Info("starting up WS server")
-	_, _, err = srpc.StartWSEndpoint(settings.WSEndpoint, server.APIs(), []string{"vdb"}, nil, true)
-	if err != nil {
-		return err
+
+	if settings.WSEnabled {
+		logWithCommand.Info("starting up WS server")
+		_, _, err := srpc.StartWSEndpoint(settings.WSEndpoint, server.APIs(), []string{"vdb", "net"}, nil, true)
+		if err != nil {
+			return err
+		}
+	} else {
+		logWithCommand.Info("WS server is disabled")
 	}
-	logWithCommand.Info("starting up HTTP server")
-	_, err = srpc.StartHTTPEndpoint(settings.HTTPEndpoint, server.APIs(), []string{"eth", "net"}, nil, []string{"*"}, rpc.HTTPTimeouts{})
-	return err
+
+	if settings.HTTPEnabled {
+		logWithCommand.Info("starting up HTTP server")
+		_, err := srpc.StartHTTPEndpoint(settings.HTTPEndpoint, server.APIs(), []string{"eth", "net"}, nil, []string{"*"}, rpc.HTTPTimeouts{})
+		if err != nil {
+			return err
+		}
+	} else {
+		logWithCommand.Info("HTTP server is disabled")
+	}
+
+	return nil
 }
 
-func startGraphQL(server s.Server) (graphQLServer *graphql.Service, err error) {
-	viper.BindEnv("server.graphql", "SERVER_GRAPHQL")
-	if viper.GetBool("server.graphql") {
-		logWithCommand.Info("starting up GraphQL server")
-		viper.BindEnv("server.graphqlEndpoint", "SERVER_GRAPHQL_ENDPOINT")
-		endPoint := viper.GetString("server.graphqlEndpoint")
+func startEthGraphQL(server s.Server, settings *s.Config) (graphQLServer *graphql.Service, err error) {
+	if settings.EthGraphqlEnabled {
+		logWithCommand.Info("starting up ETH GraphQL server")
+		endPoint := settings.EthGraphqlEndpoint
 		if endPoint != "" {
 			graphQLServer, err = graphql.New(server.Backend(), endPoint, nil, []string{"*"}, rpc.HTTPTimeouts{})
 			if err != nil {
@@ -115,19 +141,113 @@ func startGraphQL(server s.Server) (graphQLServer *graphql.Service, err error) {
 			}
 			err = graphQLServer.Start(nil)
 		}
+	} else {
+		logWithCommand.Info("ETH GraphQL server is disabled")
 	}
+
 	return
+}
+
+func startIpldGraphQL(settings *s.Config) error {
+	if settings.IpldGraphqlEnabled {
+		logWithCommand.Info("starting up IPLD GraphQL server")
+
+		gqlIpldAddr, err := url.Parse(settings.IpldPostgraphileEndpoint)
+		if err != nil {
+			return err
+		}
+
+		gqlTracingAPIAddr, err := url.Parse(settings.TracingPostgraphileEndpoint)
+		if err != nil {
+			return err
+		}
+
+		ethClients, err := parseRpcAddresses(settings.EthHttpEndpoint)
+		if err != nil {
+			return err
+		}
+
+		var tracingClients []*rpc.Client
+		tracingEndpoint := viper.GetString("tracing.httpPath")
+		if tracingEndpoint != "" {
+			tracingClients, err = parseRpcAddresses(tracingEndpoint)
+			if err != nil {
+				return err
+			}
+		}
+
+		router, err := mux.NewServeMux(&mux.Options{
+			BasePath:       "/",
+			EnableGraphiQL: true,
+			Postgraphile: mux.PostgraphileOptions{
+				Default:    gqlIpldAddr,
+				TracingAPI: gqlTracingAPIAddr,
+			},
+			RPC: mux.RPCOptions{
+				DefaultClients: ethClients,
+				TracingClients: tracingClients,
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		go http.ListenAndServe(settings.IpldGraphqlEndpoint, router)
+	} else {
+		logWithCommand.Info("IPLD GraphQL server is disabled")
+	}
+
+	return nil
+}
+
+func parseRpcAddresses(value string) ([]*rpc.Client, error) {
+	rpcAddresses := strings.Split(value, ",")
+	rpcClients := make([]*rpc.Client, 0, len(rpcAddresses))
+	for _, address := range rpcAddresses {
+		rpcClient, err := rpc.Dial(address)
+		if err != nil {
+			logWithCommand.Errorf("couldn't connect to %s. Error: %s", address, err)
+			continue
+		}
+
+		rpcClients = append(rpcClients, rpcClient)
+	}
+
+	if len(rpcClients) == 0 {
+		logWithCommand.Error(ErrNoRpcEndpoints)
+		return nil, ErrNoRpcEndpoints
+	}
+
+	return rpcClients, nil
 }
 
 func init() {
 	rootCmd.AddCommand(serveCmd)
 
+	// database credentials
+	serveCmd.PersistentFlags().String("database-name", "vulcanize_public", "database name")
+	serveCmd.PersistentFlags().Int("database-port", 5432, "database port")
+	serveCmd.PersistentFlags().String("database-hostname", "localhost", "database hostname")
+	serveCmd.PersistentFlags().String("database-user", "", "database user")
+	serveCmd.PersistentFlags().String("database-password", "", "database password")
+
 	// flags for all config variables
-	serveCmd.PersistentFlags().Bool("server-graphql", false, "turn on the graphql server")
-	serveCmd.PersistentFlags().String("server-graphql-endpoint", "", "endpoint url for graphql server")
-	serveCmd.PersistentFlags().String("server-ws-path", "", "vdb server ws path")
-	serveCmd.PersistentFlags().String("server-http-path", "", "vdb server http path")
-	serveCmd.PersistentFlags().String("server-ipc-path", "", "vdb server ipc path")
+	// eth graphql and json-rpc parameters
+	serveCmd.PersistentFlags().Bool("eth-server-graphql", false, "turn on the eth graphql server")
+	serveCmd.PersistentFlags().String("eth-server-graphql-path", "", "endpoint url for eth graphql server (host:port)")
+	serveCmd.PersistentFlags().Bool("eth-server-http", true, "turn on the eth http json-rpc server")
+	serveCmd.PersistentFlags().String("eth-server-http-path", "", "endpoint url for eth http json-rpc server (host:port)")
+	serveCmd.PersistentFlags().Bool("eth-server-ws", false, "turn on the eth websocket json-rpc server")
+	serveCmd.PersistentFlags().String("eth-server-ws-path", "", "endpoint url for eth websocket json-rpc server (host:port)")
+	serveCmd.PersistentFlags().Bool("eth-server-ipc", false, "turn on the eth ipc json-rpc server")
+	serveCmd.PersistentFlags().String("eth-server-ipc-path", "", "path for eth ipc json-rpc server")
+
+	// ipld and tracing graphql parameters
+	serveCmd.PersistentFlags().Bool("ipld-server-graphql", false, "turn on the ipld graphql server")
+	serveCmd.PersistentFlags().String("ipld-server-graphql-path", "", "endpoint url for ipld graphql server (host:port)")
+	serveCmd.PersistentFlags().String("ipld-postgraphile-path", "", "http url to postgraphile on top of ipld database")
+	serveCmd.PersistentFlags().String("tracing-http-path", "", "http url to tracing service")
+	serveCmd.PersistentFlags().String("tracing-postgraphile-path", "", "http url to postgraphile on top of tracing db")
 
 	serveCmd.PersistentFlags().String("eth-http-path", "", "http url for ethereum node")
 	serveCmd.PersistentFlags().String("eth-node-id", "", "eth node id")
@@ -141,11 +261,35 @@ func init() {
 	serveCmd.PersistentFlags().Bool("eth-supports-state-diff", false, "whether or not the proxy ethereum client supports statediffing endpoints")
 
 	// and their bindings
-	viper.BindPFlag("server.graphql", serveCmd.PersistentFlags().Lookup("server-graphql"))
-	viper.BindPFlag("server.graphqlEndpoint", serveCmd.PersistentFlags().Lookup("server-graphql-endpoint"))
-	viper.BindPFlag("server.wsPath", serveCmd.PersistentFlags().Lookup("server-ws-path"))
-	viper.BindPFlag("server.httpPath", serveCmd.PersistentFlags().Lookup("server-http-path"))
-	viper.BindPFlag("server.ipcPath", serveCmd.PersistentFlags().Lookup("server-ipc-path"))
+	// database
+	viper.BindPFlag("database.name", serveCmd.PersistentFlags().Lookup("database-name"))
+	viper.BindPFlag("database.port", serveCmd.PersistentFlags().Lookup("database-port"))
+	viper.BindPFlag("database.hostname", serveCmd.PersistentFlags().Lookup("database-hostname"))
+	viper.BindPFlag("database.user", serveCmd.PersistentFlags().Lookup("database-user"))
+	viper.BindPFlag("database.password", serveCmd.PersistentFlags().Lookup("database-password"))
+
+	// eth graphql server
+	viper.BindPFlag("eth.server.graphql", serveCmd.PersistentFlags().Lookup("eth-server-graphql"))
+	viper.BindPFlag("eth.server.graphqlPath", serveCmd.PersistentFlags().Lookup("eth-server-graphql-path"))
+
+	// eth http json-rpc server
+	viper.BindPFlag("eth.server.http", serveCmd.PersistentFlags().Lookup("eth-server-http"))
+	viper.BindPFlag("eth.server.httpPath", serveCmd.PersistentFlags().Lookup("eth-server-http-path"))
+
+	// eth websocket json-rpc server
+	viper.BindPFlag("eth.server.ws", serveCmd.PersistentFlags().Lookup("eth-server-ws"))
+	viper.BindPFlag("eth.server.wsPath", serveCmd.PersistentFlags().Lookup("eth-server-ws-path"))
+
+	// eth ipc json-rpc server
+	viper.BindPFlag("eth.server.ipc", serveCmd.PersistentFlags().Lookup("eth-server-ipc"))
+	viper.BindPFlag("eth.server.ipcPath", serveCmd.PersistentFlags().Lookup("eth-server-ipc-path"))
+
+	// ipld and tracing graphql parameters
+	viper.BindPFlag("ipld.server.graphql", serveCmd.PersistentFlags().Lookup("ipld-server-graphql"))
+	viper.BindPFlag("ipld.server.graphqlPath", serveCmd.PersistentFlags().Lookup("ipld-server-graphql-path"))
+	viper.BindPFlag("ipld.postgraphilePath", serveCmd.PersistentFlags().Lookup("ipld-postgraphile-path"))
+	viper.BindPFlag("tracing.httpPath", serveCmd.PersistentFlags().Lookup("tracing-http-path"))
+	viper.BindPFlag("tracing.postgraphilePath", serveCmd.PersistentFlags().Lookup("tracing-postgraphile-path"))
 
 	viper.BindPFlag("ethereum.httpPath", serveCmd.PersistentFlags().Lookup("eth-http-path"))
 	viper.BindPFlag("ethereum.nodeID", serveCmd.PersistentFlags().Lookup("eth-node-id"))
