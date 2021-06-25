@@ -981,7 +981,7 @@ func (r *Resolver) GetStorageAt(ctx context.Context, args struct {
 	Contract  common.Address
 	Slot      common.Hash
 }) (*StorageResult, error) {
-	cid, ipldBlock, rlpValue, err := r.backend.IPLDRetriever.RetrieveStorageAtByAddressAndStorageKeyAndBlockHash(args.Contract, args.Slot, args.BlockHash)
+	cid, ipldBlock, rlpValue, err := r.backend.IPLDRetriever.RetrieveStorageAtByAddressAndStorageSlotAndBlockHash(args.Contract, args.Slot, args.BlockHash)
 	if err == sql.ErrNoRows {
 		return &StorageResult{value: []byte{}, cid: "", ipldBlock: []byte{}}, nil
 	} else if err != nil {
