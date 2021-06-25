@@ -17,6 +17,7 @@
 package serve
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -54,14 +55,31 @@ const (
 
 // Config struct
 type Config struct {
-	DB               *postgres.DB
-	DBConfig         postgres.Config
-	WSEndpoint       string
-	HTTPEndpoint     string
-	IPCEndpoint      string
+	DB       *postgres.DB
+	DBConfig postgres.Config
+
+	WSEnabled  bool
+	WSEndpoint string
+
+	HTTPEnabled  bool
+	HTTPEndpoint string
+
+	IPCEnabled  bool
+	IPCEndpoint string
+
+	EthGraphqlEnabled  bool
+	EthGraphqlEndpoint string
+
+	IpldGraphqlEnabled          bool
+	IpldGraphqlEndpoint         string
+	IpldPostgraphileEndpoint    string
+	TracingHttpEndpoint         string
+	TracingPostgraphileEndpoint string
+
 	ChainConfig      *params.ChainConfig
 	DefaultSender    *common.Address
 	RPCGasCap        *big.Int
+	EthHttpEndpoint  string
 	Client           *rpc.Client
 	SupportStateDiff bool
 }
@@ -71,9 +89,6 @@ type Config struct {
 func NewConfig() (*Config, error) {
 	c := new(Config)
 
-	viper.BindEnv("server.wsPath", SERVER_WS_PATH)
-	viper.BindEnv("server.ipcPath", SERVER_IPC_PATH)
-	viper.BindEnv("server.httpPath", SERVER_HTTP_PATH)
 	viper.BindEnv("ethereum.httpPath", shared.ETH_HTTP_PATH)
 	viper.BindEnv("ethereum.defaultSender", ETH_DEFAULT_SENDER_ADDR)
 	viper.BindEnv("ethereum.rpcGasCap", ETH_RPC_GAS_CAP)
@@ -83,32 +98,91 @@ func NewConfig() (*Config, error) {
 	c.DBConfig.Init()
 
 	ethHTTP := viper.GetString("ethereum.httpPath")
-	nodeInfo, cli, err := shared.GetEthNodeAndClient(fmt.Sprintf("http://%s", ethHTTP))
+	ethHTTPEndpoint := fmt.Sprintf("http://%s", ethHTTP)
+	nodeInfo, cli, err := shared.GetEthNodeAndClient(ethHTTPEndpoint)
 	if err != nil {
 		return nil, err
 	}
 	c.Client = cli
 	c.SupportStateDiff = viper.GetBool("ethereum.supportsStateDiff")
+	c.EthHttpEndpoint = ethHTTPEndpoint
 
-	wsPath := viper.GetString("server.wsPath")
-	if wsPath == "" {
-		wsPath = "127.0.0.1:8080"
-	}
-	c.WSEndpoint = wsPath
-	ipcPath := viper.GetString("server.ipcPath")
-	if ipcPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
+	// websocket server
+	wsEnabled := viper.GetBool("eth.server.ws")
+	if wsEnabled {
+		wsPath := viper.GetString("eth.server.wsPath")
+		if wsPath == "" {
+			wsPath = "127.0.0.1:8080"
 		}
-		ipcPath = filepath.Join(home, ".vulcanize/vulcanize.ipc")
+		c.WSEndpoint = wsPath
 	}
-	c.IPCEndpoint = ipcPath
-	httpPath := viper.GetString("server.httpPath")
-	if httpPath == "" {
-		httpPath = "127.0.0.1:8081"
+	c.WSEnabled = wsEnabled
+
+	// ipc server
+	ipcEnabled := viper.GetBool("eth.server.ipc")
+	if ipcEnabled {
+		ipcPath := viper.GetString("eth.server.ipcPath")
+		if ipcPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, err
+			}
+			ipcPath = filepath.Join(home, ".vulcanize/vulcanize.ipc")
+		}
+		c.IPCEndpoint = ipcPath
 	}
-	c.HTTPEndpoint = httpPath
+	c.IPCEnabled = ipcEnabled
+
+	// http server
+	httpEnabled := viper.GetBool("eth.server.http")
+	if httpEnabled {
+		httpPath := viper.GetString("eth.server.httpPath")
+		if httpPath == "" {
+			httpPath = "127.0.0.1:8081"
+		}
+		c.HTTPEndpoint = httpPath
+	}
+	c.HTTPEnabled = httpEnabled
+
+	// eth graphql endpoint
+	ethGraphqlEnabled := viper.GetBool("eth.server.graphql")
+	if ethGraphqlEnabled {
+		ethGraphqlPath := viper.GetString("eth.server.graphqlPath")
+		if ethGraphqlPath == "" {
+			ethGraphqlPath = "127.0.0.1:8082"
+		}
+		c.EthGraphqlEndpoint = ethGraphqlPath
+	}
+	c.EthGraphqlEnabled = ethGraphqlEnabled
+
+	// ipld graphql endpoint
+	ipldGraphqlEnabled := viper.GetBool("ipld.server.graphql")
+	if ipldGraphqlEnabled {
+		ipldGraphqlPath := viper.GetString("ipld.server.graphqlPath")
+		if ipldGraphqlPath == "" {
+			ipldGraphqlPath = "127.0.0.1:8083"
+		}
+		c.IpldGraphqlEndpoint = ipldGraphqlPath
+
+		ipldPostgraphilePath := viper.GetString("ipld.postgraphilePath")
+		if ipldPostgraphilePath == "" {
+			return nil, errors.New("ipld-postgraphile-path parameter is empty")
+		}
+		c.IpldPostgraphileEndpoint = ipldPostgraphilePath
+
+		tracingHttpEndpoint := viper.GetString("tracing.httpPath")
+		tracingPostgraphilePath := viper.GetString("tracing.postgraphilePath")
+
+		// these two parameters either can be both empty or both set
+		if (tracingHttpEndpoint == "" && tracingPostgraphilePath != "") || (tracingHttpEndpoint != "" && tracingPostgraphilePath == "") {
+			return nil, errors.New("tracing.httpPath and tracing.postgraphilePath parameters either can be both empty or both set")
+		}
+
+		c.TracingHttpEndpoint = tracingHttpEndpoint
+		c.TracingPostgraphileEndpoint = tracingPostgraphilePath
+	}
+	c.IpldGraphqlEnabled = ipldGraphqlEnabled
+
 	overrideDBConnConfig(&c.DBConfig)
 	serveDB := utils.LoadPostgres(c.DBConfig, nodeInfo, false)
 	prom.RegisterDBCollector(c.DBConfig.Name, serveDB.DB)

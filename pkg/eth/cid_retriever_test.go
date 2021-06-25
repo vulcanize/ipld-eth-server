@@ -237,6 +237,7 @@ var _ = Describe("Retriever", func() {
 			Expect(empty).ToNot(BeTrue())
 			Expect(len(cids)).To(Equal(1))
 			Expect(cids[0].BlockNumber).To(Equal(test_helpers.MockCIDWrapper.BlockNumber))
+
 			expectedHeaderCID := test_helpers.MockCIDWrapper.Header
 			expectedHeaderCID.ID = cids[0].Header.ID
 			expectedHeaderCID.NodeID = cids[0].Header.NodeID
@@ -250,6 +251,7 @@ var _ = Describe("Retriever", func() {
 			Expect(eth.ReceiptModelsContainsCID(cids[0].Receipts, test_helpers.MockCIDWrapper.Receipts[1].CID)).To(BeTrue())
 			Expect(eth.ReceiptModelsContainsCID(cids[0].Receipts, test_helpers.MockCIDWrapper.Receipts[2].CID)).To(BeTrue())
 			Expect(len(cids[0].StateNodes)).To(Equal(2))
+
 			for _, stateNode := range cids[0].StateNodes {
 				if stateNode.CID == test_helpers.State1CID.String() {
 					Expect(stateNode.StateKey).To(Equal(common.BytesToHash(test_helpers.ContractLeafKey).Hex()))

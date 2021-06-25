@@ -6,8 +6,17 @@ RUN apk add busybox-extras
 
 # Build ipld-eth-server
 WORKDIR /go/src/github.com/vulcanize/ipld-eth-server
-ADD . .
-RUN GO111MODULE=on GCO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o ipld-eth-server .
+
+# Cache the modules
+ENV GO111MODULE=on
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
+
+COPY . .
+
+# Build the binary
+RUN GCO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o ipld-eth-server .
 
 # Copy migration tool
 WORKDIR /

@@ -121,6 +121,32 @@ The currently supported standard endpoints are:
 
 TODO: Add the rest of the standard endpoints and unique endpoints (e.g. getSlice)
 
+
+### CLI Options and Environment variables
+
+
+| CLI Option                    | Environment Variable          | Default Value    | Comment                             |
+| ----------------------------- | ----------------------------- | ---------------- | ----------------------------------- |
+| `database-hostname`           | `DATABASE_HOSTNAME`           | localhost        | IPLD database host                  |
+| `database-port`               | `DATABASE_PORT`               | 5432             | IPLD database port                  |
+| `database-name`               | `DATABASE_NAME`               | vulcanize_public | IPLD database name                  |
+| `database-user`               | `DATABASE_USER`               |                  | IPLD database user                  |
+| `database-password`           | `DATABASE_PASSWORD`           |                  | IPLD database password              |
+| `eth-server-graphql`          | `ETH_SERVER_GRAPHQL`          | false            | If `true` enable Eth GraphQL Server |
+| `eth-server-graphql-path` | `ETH_SERVER_GRAPHQLPATH` |                  | If `eth-server-graphql` set to true, endpoint url for graphql server (host:port)                               |
+| `eth-server-http`          | `ETH_SERVER_HTTP`          | true            | If `true` enable Eth HTTP JSON-RPC Server |
+| `eth-server-http-path`          | `ETH_SERVER_HTTPPATH`          |             | If `eth-server-http` set to `true`, endpoint url for Eth HTTP JSON-RPC server (host:port)  |
+| `eth-server-ws`          | `ETH_SERVER_WS`          | false            | If `true` enable Eth WS JSON-RPC Server |
+| `eth-server-ws-path`          | `ETH_SERVER_WSPATH`          |             | If `eth-server-ws` set to `true`, endpoint url for Eth WS JSON-RPC server (host:port)  |
+| `eth-server-ipc`          | `ETH_SERVER_IPC`          | false            | If `true` enable Eth IPC JSON-RPC Server |
+| `eth-server-ipc-path`          | `ETH_SERVER_IPC_PATH`          |             | If `eth-server-ws` set to `true`, path for Eth IPC JSON-RPC server |
+| `ipld-server-graphql`          | `IPLD_SERVER_GRAPHQL`          | false            | If `true` enable IPLD GraphQL Server |
+| `ipld-server-graphql-path` | `IPLD_SERVER_GRAPHQLPATH` |                  | If `ipld-server-graphql` set to true, endpoint url for graphql server (host:port)                               |
+| `ipld-postgraphile-path` | `IPLD_POSTGRAPHILEPATH` |                  | If `ipld-server-graphql` set to true, http url for postgraphile server on top of IPLD db                        |
+| `tracing-http-path` | `TRACING_HTTPPATH` |                  | If `ipld-server-graphql` set to true, http url for tracing server                        |
+| `tracing-postgraphile-path` | `TRACING.POSTGRAPHILEPATH` |                  | If `ipld-server-graphql` set to true, http url for postgraphile server on top of tracing db                        |
+
+
 ### Testing
 `make test` will run the unit tests  
 `make test` setups a clean `vulcanize_testing` db

@@ -61,39 +61,25 @@ test: | $(GINKGO) $(GOOSE)
 	dropdb -h $(DATABASE_HOSTNAME) -p $(DATABASE_PORT) -U $(DATABASE_USER) --if-exists $(TEST_DB)
 	createdb -h $(DATABASE_HOSTNAME) -p $(DATABASE_PORT) -U $(DATABASE_USER) $(TEST_DB)
 	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING)" up
-	$(GINKGO) -r --skipPackage=integration_tests,integration
+	$(GINKGO) -r --skipPackage=test
 
 .PHONY: integrationtest
 integrationtest: | $(GINKGO) $(GOOSE)
 	go vet ./...
 	go fmt ./...
-	export PGPASSWORD=$(DATABASE_PASSWORD)
-	dropdb -h $(DATABASE_HOSTNAME) -p $(DATABASE_PORT) -U $(DATABASE_USER) --if-exists $(TEST_DB)
-	createdb -h $(DATABASE_HOSTNAME) -p $(DATABASE_PORT) -U $(DATABASE_USER) $(TEST_DB)
-	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING)" up
-	$(GINKGO) -r integration_test/
+	$(GINKGO) -r test/ -v
 
 .PHONY: test_local
 test_local: | $(GINKGO) $(GOOSE)
 	go vet ./...
 	go fmt ./...
-	dropdb -h $(HOST_NAME) -p $(PORT) -U $(USER) --if-exists $(TEST_DB)
-	createdb -h $(HOST_NAME) -p $(PORT) -U $(USER) $(TEST_DB)
-	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING_LOCAL)" up
-	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING_LOCAL)" reset
-	make migrate NAME=$(TEST_DB)
-	$(GINKGO) -r --skipPackage=integration_tests,integration
+	./scripts/run_unit_test.sh
 
 .PHONY: integrationtest_local
 integrationtest_local: | $(GINKGO) $(GOOSE)
 	go vet ./...
 	go fmt ./...
-	dropdb -h $(HOST_NAME) -p $(PORT) -U $(USER) --if-exists $(TEST_DB)
-	createdb -h $(HOST_NAME) -p $(PORT) -U $(USER) $(TEST_DB)
-	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING_LOCAL)" up
-	$(GOOSE) -dir db/migrations postgres "$(TEST_CONNECT_STRING_LOCAL)" reset
-	make migrate NAME=$(TEST_DB)
-	$(GINKGO) -r integration_test/
+	./scripts/run_intregration_test.sh
 
 build:
 	go fmt ./...
