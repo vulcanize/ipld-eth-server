@@ -83,7 +83,7 @@ const (
 										INNER JOIN eth.transaction_cids ON (receipt_cids.tx_id = transaction_cids.id)
 										INNER JOIN public.blocks ON (receipt_cids.mh_key = blocks.key)
 									WHERE tx_hash = ANY($1::VARCHAR(66)[])`
-	RetrieveReceiptsByBlockHashPgStr = `SELECT receipt_cids.cid, data
+	RetrieveReceiptsByBlockHashPgStr = `SELECT receipt_cids.cid, data, eth.transaction_cids.tx_hash
 										FROM eth.receipt_cids
 											INNER JOIN eth.transaction_cids ON (receipt_cids.tx_id = transaction_cids.id)
 											INNER JOIN eth.header_cids ON (transaction_cids.header_id = header_cids.id)
@@ -161,9 +161,11 @@ const (
 )
 
 type ipldResult struct {
-	CID  string `db:"cid"`
-	Data []byte `db:"data"`
+	CID    string `db:"cid"`
+	Data   []byte `db:"data"`
+	TxHash string `db:"tx_hash"`
 }
+
 type IPLDRetriever struct {
 	db *postgres.DB
 }
@@ -345,18 +347,22 @@ func (r *IPLDRetriever) RetrieveReceiptsByTxHashes(hashes []common.Hash) ([]stri
 }
 
 // RetrieveReceiptsByBlockHash returns the cids and rlp bytes for the receipts corresponding to the provided block hash
-func (r *IPLDRetriever) RetrieveReceiptsByBlockHash(hash common.Hash) ([]string, [][]byte, error) {
+func (r *IPLDRetriever) RetrieveReceiptsByBlockHash(hash common.Hash) ([]string, [][]byte, []string, error) {
 	rctResults := make([]ipldResult, 0)
 	if err := r.db.Select(&rctResults, RetrieveReceiptsByBlockHashPgStr, hash.Hex()); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cids := make([]string, len(rctResults))
 	rcts := make([][]byte, len(rctResults))
+	txs := make([]string, len(rctResults))
+
 	for i, res := range rctResults {
 		cids[i] = res.CID
 		rcts[i] = res.Data
+		txs[i] = res.TxHash
 	}
-	return cids, rcts, nil
+
+	return cids, rcts, txs, nil
 }
 
 // RetrieveReceiptsByBlockNumber returns the cids and rlp bytes for the receipts corresponding to the provided block hash

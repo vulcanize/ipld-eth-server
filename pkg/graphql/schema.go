@@ -295,6 +295,6 @@ const schema string = `
         getStorageAt(blockHash: Bytes32!, contract: Address!, slot: Bytes32!): StorageResult
 
         # Get contract logs by block hash and contract address.
-        getLogs(blockHash: Bytes32!, contract: Address!): [Log!]
+        getLogs(blockHash: Bytes32!, contract: Address): [Log!]
     }
 `

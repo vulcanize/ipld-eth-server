@@ -482,7 +482,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (*type
 
 // GetReceipts retrieves receipts for provided block hash
 func (b *Backend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
-	_, receiptBytes, err := b.IPLDRetriever.RetrieveReceiptsByBlockHash(hash)
+	_, receiptBytes, txs, err := b.IPLDRetriever.RetrieveReceiptsByBlockHash(hash)
 	if err != nil {
 		return nil, err
 	}
@@ -492,6 +492,7 @@ func (b *Backend) GetReceipts(ctx context.Context, hash common.Hash) (types.Rece
 		if err := rlp.DecodeBytes(rctBytes, rct); err != nil {
 			return nil, err
 		}
+		rct.TxHash = common.HexToHash(txs[i])
 		rcts[i] = rct
 	}
 	return rcts, nil
@@ -499,7 +500,7 @@ func (b *Backend) GetReceipts(ctx context.Context, hash common.Hash) (types.Rece
 
 // GetLogs returns all the logs for the given block hash
 func (b *Backend) GetLogs(ctx context.Context, hash common.Hash) ([][]*types.Log, error) {
-	_, receiptBytes, err := b.IPLDRetriever.RetrieveReceiptsByBlockHash(hash)
+	_, receiptBytes, txs, err := b.IPLDRetriever.RetrieveReceiptsByBlockHash(hash)
 	if err != nil {
 		return nil, err
 	}
@@ -508,6 +509,10 @@ func (b *Backend) GetLogs(ctx context.Context, hash common.Hash) ([][]*types.Log
 		var rct types.Receipt
 		if err := rlp.DecodeBytes(rctBytes, &rct); err != nil {
 			return nil, err
+		}
+
+		for _, log := range rct.Logs {
+			log.TxHash = common.HexToHash(txs[i])
 		}
 
 		logs[i] = rct.Logs
